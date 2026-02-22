@@ -1,133 +1,128 @@
-<!-- 
-  COMPLETE PROJECT STRUCTURE:
-  personal-notes-pwa/
-  ├── index.html
-  ├── manifest.json
-  ├── service-worker.js
-  ├── styles.css
-  ├── app.js
-  ├── github-sync.js
-  ├── pin-auth.js
-  └── assets/ (icons – generated via comments)
--->
-
-<!-- ========== index.html ========== -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-  <title>Calm Notes · academic study</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>folio · visual notes</title>
+  
+  <!-- PWA Primary Tags -->
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#F5E6D3">
-  <!-- iOS splash etc optional -->
+  <meta name="theme-color" content="#0A1A2F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="folio">
+  <meta name="application-name" content="folio notes">
+  
+  <!-- iOS Splash Screen -->
+  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+  
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- SPLASH SCREEN (animated) -->
-  <div id="splash-screen" class="splash-screen">
-    <div class="book-pen-animation">
-      <div class="book-spine"></div>
-      <div class="book-cover"></div>
-      <div class="pen"></div>
-    </div>
-    <p class="splash-tagline">intellectual library</p>
-  </div>
-
-  <!-- LOCK SCREEN (PIN) -->
-  <div id="lock-screen" class="lock-screen hidden">
-    <div class="lock-card">
-      <h2 class="lock-title">📖 study lock</h2>
-      <div class="pin-display">
-        <span class="pin-dot" data-index="0"></span>
-        <span class="pin-dot" data-index="1"></span>
-        <span class="pin-dot" data-index="2"></span>
-        <span class="pin-dot" data-index="3"></span>
-      </div>
-      <div class="pin-keypad">
-        <!-- digits 0-9 will be generated in js -->
-      </div>
-      <p class="pin-hint">4-digit pin · first-time setup</p>
-    </div>
-  </div>
-
-  <!-- MAIN DASHBOARD (hidden initially) -->
-  <div id="dashboard" class="dashboard hidden">
-    <header class="dashboard-header">
-      <div class="header-left">
-        <h1 class="app-title">paperbound<span class="light">.</span></h1>
-        <span id="book-counter" class="book-counter">0 books</span>
-      </div>
-      <div class="header-right">
-        <input type="text" id="search-books" class="search-input" placeholder="search by title ...">
-      </div>
+  <!-- 3D Animated Blue Background -->
+  <div class="bg-3d"></div>
+  <div class="bg-3d-layer"></div>
+  
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <h1 class="app-title">
+        <span class="title-gradient">folio</span>
+        <span class="title-dot"></span>
+      </h1>
+      <button class="add-note-btn" id="addNoteBtn" aria-label="Add new note">
+        <span class="btn-plus">+</span>
+      </button>
     </header>
-    <main id="book-grid" class="book-grid"></main>
-    <button id="create-book-fab" class="fab">+</button>
+    
+    <!-- Notes Grid -->
+    <main class="notes-grid" id="notesGrid"></main>
+    
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📁</div>
+      <h3>No notes yet</h3>
+      <p>Tap the + button to add your first visual note</p>
+    </div>
   </div>
-
-  <!-- BOOK DETAIL VIEW (SPA) -->
-  <div id="book-detail-view" class="book-detail-view hidden">
-    <header class="detail-header">
-      <button id="back-to-dashboard" class="back-btn">← back to library</button>
-      <span id="chapter-counter" class="chapter-counter">0 chapters</span>
-    </header>
-    <div class="book-banner" id="book-banner">
-      <img id="detail-cover" src="" alt="cover" class="detail-cover">
-      <div class="banner-info">
-        <h2 id="detail-title"></h2>
-        <p id="detail-desc" class="detail-desc"></p>
+  
+  <!-- Add/Edit Modal -->
+  <div class="modal" id="noteModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add new note</h2>
+        <button class="close-modal" id="closeModal">&times;</button>
       </div>
-    </div>
-    <div class="chapters-container">
-      <button id="add-chapter-btn" class="secondary-fab">+ add chapter</button>
-      <div id="chapter-list" class="chapter-grid"></div>
-    </div>
-  </div>
-
-  <!-- CHAPTER READER (PDF IFRAME) -->
-  <div id="chapter-reader-view" class="chapter-reader-view hidden">
-    <header class="reader-header">
-      <button id="back-to-book" class="back-btn">← back to book</button>
-      <h3 id="reader-chapter-title"></h3>
-    </header>
-    <iframe id="pdf-iframe" class="pdf-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"></iframe>
-  </div>
-
-  <!-- MODAL: CREATE BOOK -->
-  <div id="create-book-modal" class="modal hidden">
-    <div class="modal-content create-book-modal">
-      <span class="close-modal">&times;</span>
-      <h2>create a new book</h2>
-      <form id="create-book-form">
-        <input type="text" id="book-title" placeholder="book title" required>
-        <textarea id="book-desc" placeholder="short description (optional)" rows="2"></textarea>
-        <div class="cover-upload-area">
-          <label for="cover-upload">📎 cover image</label>
-          <input type="file" id="cover-upload" accept="image/*">
-          <img id="cover-preview" class="cover-preview" src="#" alt="preview">
+      
+      <form id="noteForm">
+        <div class="form-group">
+          <label for="imageUrl">Image URL (thumbnail) *</label>
+          <input type="url" id="imageUrl" placeholder="https://...jpg or png" required>
+          <small>Use any image from the web</small>
         </div>
-        <button type="submit" class="modal-submit">add to library</button>
+        
+        <div class="form-group">
+          <label for="noteTitle">Title (optional)</label>
+          <input type="text" id="noteTitle" placeholder="My inspiration">
+        </div>
+        
+        <div class="form-group">
+          <label for="noteLink">Link (PDF / Image / URL) *</label>
+          <input type="url" id="noteLink" placeholder="https://...pdf or image link" required>
+          <small>What opens when you tap the image</small>
+        </div>
+        
+        <input type="hidden" id="noteId" value="">
+        
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="cancelModal">Cancel</button>
+          <button type="submit" class="btn-primary" id="saveNote">Save note</button>
+        </div>
       </form>
     </div>
   </div>
-
-  <!-- MODAL: ADD CHAPTER -->
-  <div id="add-chapter-modal" class="modal hidden">
-    <div class="modal-content add-chapter-modal">
-      <span class="close-modal">&times;</span>
-      <h2>new chapter</h2>
-      <form id="add-chapter-form">
-        <input type="text" id="chapter-title" placeholder="chapter title" required>
-        <textarea id="chapter-desc" placeholder="short description (optional)"></textarea>
-        <input type="url" id="pdf-link" placeholder="GitHub RAW PDF url" required>
-        <button type="submit" class="modal-submit">save chapter</button>
-      </form>
+  
+  <!-- Full-Screen Viewer -->
+  <div class="fullscreen-viewer" id="fullscreenViewer">
+    <div class="viewer-header">
+      <button class="viewer-back" id="viewerBack">←</button>
+      <h3 class="viewer-title" id="viewerTitle"></h3>
+      <div class="viewer-controls">
+        <button class="viewer-mode-btn" id="fitToScreenBtn" title="Fit to screen">⤢</button>
+        <button class="viewer-mode-btn" id="fullWidthBtn" title="Full width">↔</button>
+        <button class="viewer-mode-btn" id="focusModeBtn" title="Focus mode">◎</button>
+        <button class="viewer-mode-btn" id="zoomOutBtn" title="Zoom out">−</button>
+        <span class="zoom-level" id="zoomLevel">100%</span>
+        <button class="viewer-mode-btn" id="zoomInBtn" title="Zoom in">+</button>
+        <button class="viewer-close" id="viewerClose">✕</button>
+      </div>
+    </div>
+    
+    <div class="viewer-content-wrapper" id="viewerWrapper">
+      <div class="viewer-content" id="viewerContent">
+        <!-- Content loaded dynamically -->
+      </div>
+    </div>
+    
+    <div class="viewer-footer" id="viewerFooter">
+      <div class="viewer-footer-left">
+        <span class="file-type-badge" id="fileTypeBadge"></span>
+        <span class="scroll-position" id="scrollPosition">Top</span>
+      </div>
+      <div class="viewer-footer-right">
+        <button class="footer-btn" id="originalSizeBtn">Original size</button>
+        <button class="footer-btn" id="toggleControlsBtn">Hide controls</button>
+      </div>
     </div>
   </div>
-
-  <script src="pin-auth.js"></script>
-  <script src="github-sync.js"></script>
+  
+  <!-- Scripts -->
   <script src="app.js"></script>
 </body>
 </html>

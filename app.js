@@ -1,215 +1,449 @@
-// ========== app.js ==========
-// Global variables
-let activeBooks = [];
-let currentSha = null;
+// App State
+let notes = [];
+let editingId = null;
+let currentViewerNote = null;
+let viewerMode = 'fit-screen'; // fit-screen, full-width, focus
+let zoomLevel = 1;
+let scrollPosition = 0;
 
-// DOM elements
-const splash = document.getElementById('splash-screen');
-const lockScreen = document.getElementById('lock-screen');
-const dashboard = document.getElementById('dashboard');
-const bookGrid = document.getElementById('book-grid');
-const searchInput = document.getElementById('search-books');
-const bookCounter = document.getElementById('book-counter');
-const createFab = document.getElementById('create-book-fab');
-const createModal = document.getElementById('create-book-modal');
-const addChapterModal = document.getElementById('add-chapter-modal');
-const closeModals = document.querySelectorAll('.close-modal');
-const createForm = document.getElementById('create-book-form');
-const addChapterForm = document.getElementById('add-chapter-form');
-const bookDetailView = document.getElementById('book-detail-view');
-const chapterReaderView = document.getElementById('chapter-reader-view');
-const backToDashboard = document.getElementById('back-to-dashboard');
-const backToBook = document.getElementById('back-to-book');
-const detailCover = document.getElementById('detail-cover');
-const detailTitle = document.getElementById('detail-title');
-const detailDesc = document.getElementById('detail-desc');
-const chapterList = document.getElementById('chapter-list');
-const chapterCounter = document.getElementById('chapter-counter');
-const addChapterBtn = document.getElementById('add-chapter-btn');
-const pdfIframe = document.getElementById('pdf-iframe');
-const readerChapterTitle = document.getElementById('reader-chapter-title');
+// DOM Elements
+const notesGrid = document.getElementById('notesGrid');
+const emptyState = document.getElementById('emptyState');
+const addNoteBtn = document.getElementById('addNoteBtn');
+const noteModal = document.getElementById('noteModal');
+const modalTitle = document.getElementById('modalTitle');
+const noteForm = document.getElementById('noteForm');
+const imageUrlInput = document.getElementById('imageUrl');
+const noteTitleInput = document.getElementById('noteTitle');
+const noteLinkInput = document.getElementById('noteLink');
+const noteIdInput = document.getElementById('noteId');
+const closeModal = document.getElementById('closeModal');
+const cancelModal = document.getElementById('cancelModal');
 
-// init after splash
-setTimeout(() => {
-  splash.classList.add('hidden');
-  lockScreen.classList.remove('hidden');
-  PINAuth.init();
-}, 2400);
+// Full-Screen Viewer Elements
+const fullscreenViewer = document.getElementById('fullscreenViewer');
+const viewerTitle = document.getElementById('viewerTitle');
+const viewerContent = document.getElementById('viewerContent');
+const viewerWrapper = document.getElementById('viewerWrapper');
+const viewerBack = document.getElementById('viewerBack');
+const viewerClose = document.getElementById('viewerClose');
+const fitToScreenBtn = document.getElementById('fitToScreenBtn');
+const fullWidthBtn = document.getElementById('fullWidthBtn');
+const focusModeBtn = document.getElementById('focusModeBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomLevelSpan = document.getElementById('zoomLevel');
+const fileTypeBadge = document.getElementById('fileTypeBadge');
+const scrollPositionSpan = document.getElementById('scrollPosition');
+const originalSizeBtn = document.getElementById('originalSizeBtn');
+const toggleControlsBtn = document.getElementById('toggleControlsBtn');
+const viewerFooter = document.getElementById('viewerFooter');
 
-// load data from GitHub on unlock success (override PINAuth.onSuccess)
-const originalSuccess = PINAuth.onSuccess;
-PINAuth.onSuccess = function() {
-  originalSuccess.call(this); // hide lock, show dashboard
-  loadFromGitHub();
-};
-function loadFromGitHub() {
-  GitHubSync.fetchBooks().then(res => {
-    activeBooks = res.books || [];
-    currentSha = res.sha;
-    window.booksData = activeBooks; // sync
-    renderBookGrid(activeBooks);
-  }).catch(err => {
-    console.warn('GitHub load failed, start empty', err);
-    activeBooks = [];
-    renderBookGrid([]);
-  });
-}
-
-function renderBookGrid(books) {
-  bookGrid.innerHTML = '';
-  books.forEach(book => {
-    const card = document.createElement('div');
-    card.className = 'book-card';
-    card.dataset.id = book.id;
-    card.innerHTML = `
-      <img src="${book.cover || 'assets/default-cover.jpg'}" alt="cover" class="book-cover" loading="lazy">
-      <div class="book-info">
-        <div class="book-title">${escapeHtml(book.title)}</div>
-        <div class="book-desc">${escapeHtml(book.desc || '')}</div>
-      </div>
-    `;
-    card.addEventListener('click', () => openBookDetail(book.id));
-    bookGrid.appendChild(card);
-  });
-  bookCounter.textContent = `${books.length} book${books.length!==1?'s':''}`;
-}
-function escapeHtml(unsafe) {
-  if (!unsafe) return '';
-  return unsafe.replace(/[&<>"']/g, function(m) {
-    if(m === '&') return '&amp;'; if(m === '<') return '&lt;'; if(m === '>') return '&gt;';
-    if(m === '"') return '&quot;'; return '&#039;';
-  });
-}
-
-// search
-searchInput.addEventListener('input', (e) => {
-  const term = e.target.value.toLowerCase();
-  const filtered = activeBooks.filter(b => b.title.toLowerCase().includes(term));
-  renderBookGrid(filtered);
-});
-
-// create book modal
-createFab.addEventListener('click', () => createModal.classList.remove('hidden'));
-closeModals.forEach(x => x.addEventListener('click', (e) => {
-  createModal.classList.add('hidden');
-  addChapterModal.classList.add('hidden');
-}));
-
-// cover preview
-document.getElementById('cover-upload').addEventListener('change', function(e) {
-  const file = e.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (e) => document.getElementById('cover-preview').src = e.target.result;
-    reader.readAsDataURL(file);
-  }
-});
-
-createForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const title = document.getElementById('book-title').value;
-  const desc = document.getElementById('book-desc').value;
-  const coverInput = document.getElementById('cover-upload');
-  let coverData = '';
-  if (coverInput.files[0]) {
-    coverData = await toBase64(coverInput.files[0]);
+// Load notes from localStorage
+function loadNotes() {
+  const saved = localStorage.getItem('folio_notes');
+  if (saved) {
+    try {
+      notes = JSON.parse(saved);
+    } catch (e) {
+      notes = [];
+    }
   } else {
-    coverData = 'assets/default-cover.jpg';
+    // Sample notes with Unsplash images
+    notes = [
+      {
+        id: '1',
+        imageUrl: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=400',
+        title: 'Mountain Inspiration',
+        link: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=1200',
+        type: 'image'
+      },
+      {
+        id: '2',
+        imageUrl: 'https://images.unsplash.com/photo-1519638399535-1b036603ac77?w=400',
+        title: 'Design Reference',
+        link: 'https://images.unsplash.com/photo-1519638399535-1b036603ac77?w=1200',
+        type: 'image'
+      },
+      {
+        id: '3',
+        imageUrl: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=400',
+        title: 'Abstract Art',
+        link: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=1200',
+        type: 'image'
+      }
+    ];
   }
-  const newBook = {
-    id: Date.now().toString() + Math.random().toString(36).substring(2),
-    title, desc, cover: coverData, chapters: []
-  };
-  activeBooks.push(newBook);
-  await pushToGitHub();
-  renderBookGrid(activeBooks);
-  createModal.classList.add('hidden');
-  createForm.reset();
-  document.getElementById('cover-preview').src = '#';
+  renderNotes();
+  
+  // Restore viewer state if it was open
+  const lastView = sessionStorage.getItem('lastViewerNote');
+  if (lastView) {
+    try {
+      const noteId = lastView;
+      const note = notes.find(n => n.id === noteId);
+      if (note) {
+        setTimeout(() => openFullscreenViewer(noteId), 100);
+      }
+    } catch (e) {}
+  }
+}
+
+// Save notes to localStorage
+function saveNotes() {
+  localStorage.setItem('folio_notes', JSON.stringify(notes));
+  renderNotes();
+}
+
+// Render notes grid
+function renderNotes() {
+  if (notes.length === 0) {
+    emptyState.style.display = 'block';
+    notesGrid.innerHTML = '';
+  } else {
+    emptyState.style.display = 'none';
+    
+    let html = '';
+    notes.forEach(note => {
+      const fileType = getFileType(note.link);
+      const typeIcon = fileType === 'pdf' ? '📄' : (fileType === 'image' ? '🖼️' : '🔗');
+      const typeColor = fileType === 'pdf' ? '#FF6B6B' : (fileType === 'image' ? '#3A86FF' : '#8338EC');
+      
+      html += `
+        <div class="note-card" data-id="${note.id}" style="border-color: ${typeColor}20;">
+          <img class="note-thumbnail" src="${note.imageUrl}" alt="${note.title || 'Note'}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22200%22%20height%3D%22200%22%20viewBox%3D%220%200%20200%20200%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%231A3A5A%22%2F%3E%3Ctext%20x%3D%2250%22%20y%3D%22115%22%20font-size%3D%2250%22%20fill%3D%22%233A86FF%22%3E📷%3C%2Ftext%3E%3C%2Fsvg%3E'">
+          <div class="note-title">${note.title || 'Untitled'}</div>
+          <div class="note-meta">
+            <span class="note-type" style="background: ${typeColor}15; color: ${typeColor};">${typeIcon} ${fileType}</span>
+            <button class="delete-note" onclick="deleteNote('${note.id}')" title="Delete note">✕</button>
+          </div>
+        </div>
+      `;
+    });
+    notesGrid.innerHTML = html;
+    
+    // Add click listeners to cards
+    document.querySelectorAll('.note-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('delete-note')) return;
+        const id = card.dataset.id;
+        openFullscreenViewer(id);
+      });
+    });
+  }
+}
+
+// Get file type from URL
+function getFileType(url) {
+  if (!url) return 'link';
+  const ext = url.split('.').pop().toLowerCase().split('?')[0];
+  if (['pdf'].includes(ext)) return 'pdf';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext)) return 'image';
+  return 'link';
+}
+
+// Delete note
+window.deleteNote = function(id) {
+  if (confirm('Delete this note?')) {
+    notes = notes.filter(n => n.id !== id);
+    saveNotes();
+    
+    // Close viewer if open
+    if (currentViewerNote && currentViewerNote.id === id) {
+      closeFullscreenViewer();
+    }
+  }
+};
+
+// Open Full-Screen Viewer
+function openFullscreenViewer(id) {
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  
+  currentViewerNote = note;
+  viewerTitle.textContent = note.title || 'Untitled';
+  
+  const type = getFileType(note.link);
+  fileTypeBadge.textContent = type.toUpperCase();
+  
+  // Store in session for refresh recovery
+  sessionStorage.setItem('lastViewerNote', id);
+  
+  // Load content
+  loadViewerContent(note, type);
+  
+  // Reset zoom and mode
+  zoomLevel = 1;
+  updateZoomDisplay();
+  setViewerMode('fit-screen');
+  
+  // Show viewer
+  fullscreenViewer.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  
+  // Restore scroll position if available
+  setTimeout(() => {
+    if (scrollPosition) {
+      viewerWrapper.scrollTop = scrollPosition;
+    }
+  }, 50);
+}
+
+// Load content into viewer
+function loadViewerContent(note, type) {
+  let content = '';
+  
+  if (type === 'image') {
+    content = `<img src="${note.link}" alt="${note.title}" class="viewer-image" style="transform: scale(${zoomLevel}); transition: transform 0.2s;">`;
+  } else if (type === 'pdf') {
+    content = `<iframe src="${note.link}" frameborder="0" class="viewer-pdf"></iframe>`;
+  } else {
+    // Try to embed
+    content = `<iframe src="${note.link}" frameborder="0" class="viewer-link" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>`;
+  }
+  
+  viewerContent.innerHTML = content;
+  
+  // Add zoom listeners for images
+  if (type === 'image') {
+    const img = viewerContent.querySelector('img');
+    img.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          zoomIn();
+        } else {
+          zoomOut();
+        }
+      }
+    });
+    
+    // Double-click to reset zoom
+    img.addEventListener('dblclick', () => {
+      zoomLevel = 1;
+      applyZoom();
+    });
+  }
+}
+
+// Set viewer mode
+function setViewerMode(mode) {
+  viewerMode = mode;
+  
+  // Remove all mode classes
+  viewerContent.classList.remove('fit-screen', 'full-width', 'focus-mode');
+  fullscreenViewer.classList.remove('focus-mode');
+  
+  // Update buttons
+  [fitToScreenBtn, fullWidthBtn, focusModeBtn].forEach(btn => btn.classList.remove('active'));
+  
+  switch(mode) {
+    case 'fit-screen':
+      viewerContent.classList.add('fit-screen');
+      fitToScreenBtn.classList.add('active');
+      break;
+    case 'full-width':
+      viewerContent.classList.add('full-width');
+      fullWidthBtn.classList.add('active');
+      break;
+    case 'focus':
+      viewerContent.classList.add('focus-mode');
+      fullscreenViewer.classList.add('focus-mode');
+      focusModeBtn.classList.add('active');
+      break;
+  }
+}
+
+// Zoom functions
+function zoomIn() {
+  zoomLevel = Math.min(zoomLevel + 0.25, 3);
+  applyZoom();
+}
+
+function zoomOut() {
+  zoomLevel = Math.max(zoomLevel - 0.25, 0.5);
+  applyZoom();
+}
+
+function applyZoom() {
+  const img = viewerContent.querySelector('img');
+  if (img) {
+    img.style.transform = `scale(${zoomLevel})`;
+    updateZoomDisplay();
+  }
+}
+
+function updateZoomDisplay() {
+  zoomLevelSpan.textContent = Math.round(zoomLevel * 100) + '%';
+}
+
+// Close viewer
+function closeFullscreenViewer() {
+  fullscreenViewer.classList.remove('active');
+  document.body.style.overflow = '';
+  currentViewerNote = null;
+  sessionStorage.removeItem('lastViewerNote');
+  
+  // Save scroll position
+  scrollPosition = viewerWrapper.scrollTop;
+  
+  // Clear content
+  setTimeout(() => {
+    viewerContent.innerHTML = '';
+  }, 300);
+}
+
+// Track scroll position
+viewerWrapper.addEventListener('scroll', () => {
+  const scroll = viewerWrapper.scrollTop;
+  const maxScroll = viewerWrapper.scrollHeight - viewerWrapper.clientHeight;
+  
+  if (scroll < 10) {
+    scrollPositionSpan.textContent = 'Top';
+  } else if (scroll > maxScroll - 10) {
+    scrollPositionSpan.textContent = 'Bottom';
+  } else {
+    const percent = Math.round((scroll / maxScroll) * 100);
+    scrollPositionSpan.textContent = `${percent}%`;
+  }
 });
 
-function toBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader(); r.readAsDataURL(file);
-    r.onload = () => res(r.result); r.onerror = rej;
-  });
-}
+// Viewer event listeners
+viewerBack.addEventListener('click', closeFullscreenViewer);
+viewerClose.addEventListener('click', closeFullscreenViewer);
 
-async function pushToGitHub() {
-  const ok = await GitHubSync.saveBooks(activeBooks, currentSha);
-  if (ok) {
-    const refreshed = await GitHubSync.fetchBooks();
-    activeBooks = refreshed.books;
-    currentSha = refreshed.sha;
-  }
-}
+fitToScreenBtn.addEventListener('click', () => setViewerMode('fit-screen'));
+fullWidthBtn.addEventListener('click', () => setViewerMode('full-width'));
+focusModeBtn.addEventListener('click', () => setViewerMode('focus'));
 
-// open book detail
-function openBookDetail(bookId) {
-  const book = activeBooks.find(b => b.id === bookId);
-  if (!book) return;
-  currentBookId = bookId;
-  detailCover.src = book.cover || 'assets/default-cover.jpg';
-  detailTitle.textContent = book.title;
-  detailDesc.textContent = book.desc || 'no description';
-  renderChapters(book.chapters || []);
-  dashboard.classList.add('hidden');
-  bookDetailView.classList.remove('hidden');
-}
+zoomInBtn.addEventListener('click', zoomIn);
+zoomOutBtn.addEventListener('click', zoomOut);
 
-function renderChapters(chapters) {
-  chapterList.innerHTML = '';
-  chapters.forEach((ch, index) => {
-    const card = document.createElement('div');
-    card.className = 'chapter-card';
-    card.innerHTML = `<h4>${escapeHtml(ch.title)}</h4><p>${escapeHtml(ch.desc || '')}</p>`;
-    card.addEventListener('click', () => openChapterReader(ch, index));
-    chapterList.appendChild(card);
-  });
-  chapterCounter.textContent = `${chapters.length} chapters`;
-}
-
-// add chapter
-addChapterBtn.addEventListener('click', () => {
-  if (!currentBookId) return;
-  addChapterModal.classList.remove('hidden');
+originalSizeBtn.addEventListener('click', () => {
+  zoomLevel = 1;
+  applyZoom();
+  setViewerMode('fit-screen');
 });
-addChapterForm.addEventListener('submit', async (e) => {
+
+toggleControlsBtn.addEventListener('click', () => {
+  const isHidden = viewerFooter.style.display === 'none';
+  viewerFooter.style.display = isHidden ? 'flex' : 'none';
+  toggleControlsBtn.textContent = isHidden ? 'Hide controls' : 'Show controls';
+});
+
+// Close on escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (fullscreenViewer.classList.contains('active')) {
+      closeFullscreenViewer();
+    }
+    if (noteModal.classList.contains('active')) {
+      closeModalFunc();
+    }
+  }
+});
+
+// Open add/edit modal
+function openModal(note = null) {
+  if (note) {
+    modalTitle.textContent = 'Edit note';
+    imageUrlInput.value = note.imageUrl;
+    noteTitleInput.value = note.title || '';
+    noteLinkInput.value = note.link;
+    noteIdInput.value = note.id;
+    editingId = note.id;
+  } else {
+    modalTitle.textContent = 'Add new note';
+    noteForm.reset();
+    noteIdInput.value = '';
+    editingId = null;
+  }
+  noteModal.classList.add('active');
+}
+
+// Close modal
+function closeModalFunc() {
+  noteModal.classList.remove('active');
+  noteForm.reset();
+  editingId = null;
+}
+
+// Save note from form
+noteForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const title = document.getElementById('chapter-title').value;
-  const desc = document.getElementById('chapter-desc').value;
-  const pdfLink = document.getElementById('pdf-link').value;
-  const book = activeBooks.find(b => b.id === currentBookId);
-  if (book) {
-    if (!book.chapters) book.chapters = [];
-    book.chapters.push({ title, desc, pdfLink });
-    await pushToGitHub();
-    renderChapters(book.chapters);
+  
+  const imageUrl = imageUrlInput.value.trim();
+  const title = noteTitleInput.value.trim();
+  const link = noteLinkInput.value.trim();
+  
+  if (!imageUrl || !link) return;
+  
+  const now = Date.now();
+  const id = editingId || now.toString();
+  
+  const noteData = {
+    id,
+    imageUrl,
+    title: title || 'Untitled',
+    link,
+    type: getFileType(link),
+    updated: now
+  };
+  
+  if (editingId) {
+    const index = notes.findIndex(n => n.id === editingId);
+    if (index !== -1) notes[index] = noteData;
+  } else {
+    notes.push(noteData);
   }
-  addChapterModal.classList.add('hidden');
-  addChapterForm.reset();
+  
+  saveNotes();
+  closeModalFunc();
 });
 
-function openChapterReader(chapter) {
-  pdfIframe.src = chapter.pdfLink;
-  readerChapterTitle.textContent = chapter.title;
-  bookDetailView.classList.add('hidden');
-  chapterReaderView.classList.remove('hidden');
+// Event listeners
+addNoteBtn.addEventListener('click', () => openModal());
+closeModal.addEventListener('click', closeModalFunc);
+cancelModal.addEventListener('click', closeModalFunc);
+
+// Close modal on outside click
+noteModal.addEventListener('click', (e) => {
+  if (e.target === noteModal) closeModalFunc();
+});
+
+// Initialize
+loadNotes();
+
+// Register Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.log('SW registration failed:', err);
+    });
+  });
 }
 
-backToDashboard.addEventListener('click', () => {
-  bookDetailView.classList.add('hidden');
-  dashboard.classList.remove('hidden');
-  currentBookId = null;
-});
-backToBook.addEventListener('click', () => {
-  chapterReaderView.classList.add('hidden');
-  bookDetailView.classList.remove('hidden');
-  pdfIframe.src = '';
-});
+// Export/Import functions (optional bonus)
+window.exportNotes = function() {
+  const dataStr = JSON.stringify(notes, null, 2);
+  const blob = new Blob([dataStr], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'folio-notes-backup.json';
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
-// close modals when click outside
-window.addEventListener('click', (e) => {
-  if (e.target === createModal) createModal.classList.add('hidden');
-  if (e.target === addChapterModal) addChapterModal.classList.add('hidden');
-});
+window.importNotes = function(jsonStr) {
+  try {
+    const imported = JSON.parse(jsonStr);
+    if (Array.isArray(imported)) {
+      notes = imported;
+      saveNotes();
+      alert('Notes imported successfully!');
+    }
+  } catch (e) {
+    alert('Invalid backup file');
+  }
+};
